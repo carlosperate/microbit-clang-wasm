@@ -15,42 +15,57 @@ fi
 export CCACHE_DIR=${CCACHE_DIR:-$(pwd)/.ccache}
 export CCACHE_MAXSIZE=${CCACHE_MAXSIZE:-10G}
 
+# `tblgen` builds the native code generators, `llvm` the WebAssembly compiler that needs them, `all`
+# both. CI splits them into two jobs so neither approaches its six-hour limit on a cold build.
+STAGE=${STAGE:-all}
+case "${STAGE}" in
+  all|tblgen|llvm) ;;
+  *) echo "STAGE must be all, tblgen or llvm, not ${STAGE}" >&2; exit 1 ;;
+esac
+
+# Everything this build pins is defined once, in config.json: the LLVM lines and their commits,
+# which one is the default, the wasi-sdk digest, the packaging revision. `config a b c` reads a
+# value; `config a b --keys` lists what is under it.
+config() {
+  python3 - "$@" <<'END'
+import json, sys
+keys = sys.argv[1:]
+want_keys = keys and keys[-1] == "--keys"
+value = json.load(open("config.json"))
+try:
+    for key in (keys[:-1] if want_keys else keys):
+        value = value[key]
+except KeyError:
+    sys.exit(f"config.json has no {' / '.join(keys)}")
+print("\n".join(value) if want_keys else value)
+END
+}
+
 # Which ATfE release to build. One knob, as an argument or an environment variable:
 #   ./build.sh 22.1.0        LLVM_VERSION=22.1.0 ./build.sh
-# The default tracks the newest version actually built and tested here, not the newest that exists.
-DEFAULT_LLVM_VERSION=21.1.1
-LLVM_VERSION=${1:-${LLVM_VERSION:-${DEFAULT_LLVM_VERSION}}}
-LLVM_TAG=release-${LLVM_VERSION}-ATfE
-
-# Everything that version needs lives in one directory: the patches, and the commit its tag pointed
-# at. So `ls patches/` is the list of versions this repository can build, and there is no separate
-# mapping to fall out of step. The patches have to be per version because the WASI change differs
-# between them: 21 files on the 21.x branch, 23 on 22.x.
-#
-# Each directory is self-contained, and a patch shared between versions is copied rather than
-# referenced. That is deliberate: patch context drifts between releases, so a shared patch would
-# have to be edited when one release moves those lines, which would silently change what an older
-# version builds from. Copying keeps every version independently reproducible.
-PATCH_DIR=patches/${LLVM_TAG}
-if ! [ -d "${PATCH_DIR}" ]; then
-  echo "no patches for ${LLVM_VERSION}. Add ${PATCH_DIR}, or build one of:" >&2
-  ls patches | sed 's/^release-/  /; s/-ATfE$//' >&2
+LLVM_VERSION=${1:-${LLVM_VERSION:-$(config llvm default)}}
+if ! config llvm releases --keys | grep -qx "${LLVM_VERSION}"; then
+  echo "config.json does not define LLVM ${LLVM_VERSION}; it defines:" >&2
+  config llvm releases --keys | sed 's/^/  /' >&2
   exit 1
 fi
+LLVM_TAG=$(config llvm releases "${LLVM_VERSION}" tag)
+LLVM_COMMIT=$(config llvm releases "${LLVM_VERSION}" commit)
+LLVM_REPO=${LLVM_REPO:-$(config llvm repository)}
 
-# An empty directory would build an unpatched compiler, and the WASI change is not optional. Worth
-# a check because that failure surfaces hours later and nowhere near its cause; a missing or
-# malformed llvm-commit, by contrast, fails immediately and says so itself.
+# One patch set per release, copied rather than shared: patch context drifts between releases, and
+# editing a shared file for one would silently change what an older version builds from.
+PATCH_DIR=patches/${LLVM_TAG}
+# An empty directory would build an unpatched compiler, and the WASI change is not optional; that
+# failure would surface hours later and nowhere near its cause.
 if ! ls "${PATCH_DIR}"/*.patch >/dev/null 2>&1; then
   echo "${PATCH_DIR} has no patches, so this would build an unpatched compiler" >&2
   exit 1
 fi
-read -r LLVM_COMMIT < "${PATCH_DIR}/llvm-commit"
 
 # The ATfE tags are not consistently annotated — 21.1.1 is lightweight, 22.1.0 is not — so the
 # commit is checked after cloning rather than resolved from the tag beforehand. It also catches a
 # moved tag, and a stale llvm-src left over from building a different version.
-LLVM_REPO=${LLVM_REPO:-https://github.com/arm/arm-toolchain.git}
 if ! [ -e llvm-src/llvm/CMakeLists.txt ]; then
   git clone --depth 1 --single-branch --branch "${LLVM_TAG}" "${LLVM_REPO}" llvm-src
 fi
@@ -62,27 +77,21 @@ if [ "${llvm_head}" != "${LLVM_COMMIT}" ]; then
 fi
 echo "building LLVM ${LLVM_VERSION} (${LLVM_TAG}, ${LLVM_COMMIT})"
 
-# ATfE's libraries and headers for the micro:bit's CPU, arranged as a flat sysroot: lib/ from the
-# armv7m_soft_fpv4_sp_d16_unaligned_size variant, include/ from the shared newlib-nano headers.
+# The flat sysroot atfe-sysroot.sh assembles, licences/ included since we redistribute the binaries.
 # Checked now because it is not used until the very end, so a missing one otherwise wastes the build.
-# licenses/ is required, not optional: we redistribute newlib, libc++ and compiler-rt binaries, and
-# their notices have to go with them. Copy ATfE's THIRD-PARTY-LICENSES.txt and third-party-licenses/
-# into the sysroot when assembling it.
 ATFE_SYSROOT=${ATFE_SYSROOT:-$(pwd)/atfe-sysroot}
-ls -d "${ATFE_SYSROOT}/include" "${ATFE_SYSROOT}/lib" "${ATFE_SYSROOT}/licenses" >/dev/null
+if [ "${STAGE}" != tblgen ]; then
+  ls -d "${ATFE_SYSROOT}/include" "${ATFE_SYSROOT}/lib" "${ATFE_SYSROOT}/licenses" >/dev/null
+fi
 
 # The toolchain that compiles LLVM to wasm. It is a host build tool and is not shipped, but it does
 # decide what our binary contains, so it is pinned by version and checked by digest.
-WASI_VER=32
+WASI_VER=$(config wasiSdk version)
 WASI_ARCH=$(uname -m | sed 's/aarch64/arm64/')
 WASI_SDK=wasi-sdk-${WASI_VER}.0-${WASI_ARCH}-linux
 WASI_SDK_URL=https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-${WASI_VER}/${WASI_SDK}.tar.gz
-case ${WASI_ARCH} in
-  arm64)  WASI_SDK_SHA256=b2070865e6cb0c1e97a38e6ac8d9c37a9dfcd0752764ebabc6bacd3e60cedb96 ;;
-  x86_64) WASI_SDK_SHA256=55fc523ebfbc98f69d1034fcfcb83d1ff5610cd9ab7eceef6cd097a30ba4ef93 ;;
-  *)      echo "no wasi-sdk digest recorded for ${WASI_ARCH}" >&2; exit 1 ;;
-esac
-if ! [ -d "${WASI_SDK}" ]; then
+WASI_SDK_SHA256=$(config wasiSdk sha256 "${WASI_ARCH}")
+if [ "${STAGE}" != tblgen ] && ! [ -d "${WASI_SDK}" ]; then
   # Downloaded to a file rather than piped into tar, so the digest is checked before anything is
   # unpacked. Removed afterwards; it is 136 MB.
   curl -L -o "${WASI_SDK}.tar.gz" "${WASI_SDK_URL}"
@@ -136,10 +145,9 @@ END
 
 LLVM_VERSION_MAJOR=$(cmake -P Get-LLVM-Version.cmake 2>&1)
 
-# Upstream skips this whenever the two executables exist. Our build directory lives in a volume that
-# outlives the LLVM checkout, so that would hand a new LLVM its predecessor's generators; the 21 to
-# 22 move would hit it. Configure and build unconditionally instead and let CMake decide what is
-# actually stale, which costs nothing when nothing changed.
+# Built unconditionally, not skipped when the executables exist as upstream does: a leftover set from
+# another LLVM would otherwise be reused. The llvm stage checks the same thing via built-from below.
+if [ "${STAGE}" != llvm ]; then
 mkdir -p llvm-tblgen-build
 cmake -B llvm-tblgen-build -S llvm-src/llvm \
     -DLLVM_CCACHE_BUILD=ON \
@@ -159,6 +167,21 @@ cmake -B llvm-tblgen-build -S llvm-src/llvm \
     -DCLANG_BUILD_TOOLS=OFF \
     -DCLANG_INCLUDE_TESTS=OFF
 cmake --build llvm-tblgen-build --target llvm-tblgen --target clang-tblgen
+echo "${LLVM_COMMIT}" > llvm-tblgen-build/bin/built-from
+fi
+
+if [ "${STAGE}" = tblgen ]; then
+  echo "tblgen stage done; run STAGE=llvm next, with llvm-tblgen-build/bin in place"
+  exit 0
+fi
+
+# Split in two, the generators arrive from the tblgen stage rather than being built here. They have
+# to be from this LLVM: a leftover set from another version fails hours later, deep inside TableGen.
+ls llvm-tblgen-build/bin/llvm-tblgen llvm-tblgen-build/bin/clang-tblgen llvm-tblgen-build/bin/llvm-min-tblgen >/dev/null
+if [ "$(cat llvm-tblgen-build/bin/built-from 2>/dev/null)" != "${LLVM_COMMIT}" ]; then
+  echo "llvm-tblgen-build was built from $(cat llvm-tblgen-build/bin/built-from 2>/dev/null || echo 'an unknown commit'), not ${LLVM_COMMIT}; run STAGE=tblgen first" >&2
+  exit 1
+fi
 
 mkdir -p llvm-build
 cmake -B llvm-build -S llvm-src/llvm \
@@ -315,3 +338,14 @@ mkdir -p wasi-prefix/usr/lib/clang/${LLVM_VERSION_MAJOR}
 rm -rf wasi-prefix/usr/lib/clang/${LLVM_VERSION_MAJOR}/include
 cp -r llvm-build/usr/lib/clang/${LLVM_VERSION_MAJOR}/include \
   wasi-prefix/usr/lib/clang/${LLVM_VERSION_MAJOR}/
+
+# What the package says it contains, written by the build that made it rather than worked out again
+# at packaging time. prepare.py refuses to package without it.
+cat >llvm-build/build-info.json <<END
+{
+  "version": "${LLVM_VERSION}",
+  "repository": "${LLVM_REPO}",
+  "release": "${LLVM_TAG}",
+  "commit": "${LLVM_COMMIT}"
+}
+END

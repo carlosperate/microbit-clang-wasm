@@ -1,35 +1,31 @@
-import os
-import re
 import json
-import subprocess
 
 
-# The LLVM source is an ATfE release tag in arm/arm-toolchain, not an llvmorg tag, and it may be a
-# shallow clone that `git describe` cannot read at all, so the version can be supplied directly.
-version = os.environ.get("PACKAGE_VERSION")
-if version is None:
-    llvm_version_raw = subprocess.check_output([
-        "git", "-C", "../llvm-src", "describe", "--tags", "HEAD"
-    ], encoding="utf-8").strip()
-    print(llvm_version_raw)
+# The version is MAJOR.(10 × llvm.minor + llvm.patch).revision, so 21.11.3 is ATfE 21.1.1 at
+# packaging revision 3. The revision is one number for the whole repository, since the same
+# JavaScript and scripts build every LLVM line, and it lives in config.json with everything else.
+# LLVM's minor has been a constant 1 since LLVM 18 by policy, which keeps the encoding decodable.
 
-    git_rev_list_raw = subprocess.check_output([
-        "git", "rev-list", "HEAD"
-    ], encoding="utf-8").split()
-    distance = len(git_rev_list_raw) - 1
+with open("../config.json", "rt") as f:
+    config = json.load(f)
 
-    # Only ATfE release tags are buildable, so upstream's llvmorg-* parsing is gone with them.
-    atfe_version = re.match(r"^release-(\d+)\.(\d+)\.(\d+)-ATfE$", llvm_version_raw)
-    if atfe_version is None:
-        raise SystemExit(f"cannot derive a version from {llvm_version_raw!r}; "
-                         f"set PACKAGE_VERSION instead")
-    version = (f"{int(atfe_version[1])}.{int(atfe_version[2])}.{int(atfe_version[3])}"
-               f"-atfe.{distance}")
-print(f"version {version}")
+# Written by build.sh, so the package cannot claim an LLVM it was not built from.
+with open("../llvm-build/build-info.json", "rt") as f:
+    llvm = json.load(f)
+if llvm["version"] not in config["llvm"]["releases"]:
+    raise SystemExit(f"built LLVM {llvm['version']} is not in config.json")
+major, minor, patch = (int(part) for part in llvm["version"].split("."))
+if minor != 1:
+    raise SystemExit(f"LLVM {llvm['version']} has minor {minor}; the version scheme assumes 1")
+
+version = f"{major}.{10 * minor + patch}.{config['revision']}"
 
 with open("package-in.json", "rt") as f:
     package_json = json.load(f)
 package_json["version"] = version
+package_json["llvm"] = llvm
 package_json["scripts"]["build"] += f" --define:VERSION=\\\"{version}\\\""
 with open("package.json", "wt") as f:
     json.dump(package_json, f, indent=2)
+
+print(f"{package_json['name']} {version}: LLVM {llvm['version']} ({llvm['repository']} {llvm['release']}, {llvm['commit'][:9]})")

@@ -1,0 +1,270 @@
+name: Build & publish
+
+# config.json defines the LLVM lines and the packaging revision. A tag (any name) builds every line
+# and publishes each as <encoded LLVM>.<revision>, skipping versions already on npm; an ordinary
+# push builds only the default line. Builds are time-boxed so a run out of time still saves ccache.
+
+on:
+  push:
+    branches: '**'
+    tags: '*'
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'One ATfE release to build (default: config.json llvm.default)'
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CCACHE_MAXSIZE: 5G
+
+jobs:
+  pins:
+    name: Which LLVM lines
+    runs-on: ubuntu-22.04
+    # A pull request from a branch in this repository already ran on push; a multi-hour build twice
+    # for the same commit is not worth it. Forks have no push run here, so they still get one.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    outputs:
+      versions: ${{ steps.list.outputs.versions }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: list
+        run: |
+          jq -e .llvm.default config.json >/dev/null   # a renamed key would otherwise become a null matrix entry
+          if [ -n "${{ inputs.version }}" ]; then
+            chosen='["${{ inputs.version }}"]'
+          elif [ "${GITHUB_REF_TYPE}" = tag ]; then
+            chosen=$(jq -c '.llvm.releases | keys' config.json)
+          else
+            chosen=$(jq -c '[.llvm.default]' config.json)
+          fi
+          echo "versions=${chosen}" >> "$GITHUB_OUTPUT"
+          echo "building ${chosen} at revision $(jq -r .revision config.json)"
+
+  tblgen:
+    name: Native code generators (${{ matrix.llvm }})
+    needs: pins
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        llvm: ${{ fromJSON(needs.pins.outputs.versions) }}
+    env:
+      LLVM_VERSION: ${{ matrix.llvm }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y ccache cmake flex bison time
+
+      # Cache entries are immutable, so each run saves under a key of its own and restores from the
+      # newest prefix match.
+      - uses: actions/cache/restore@v6
+        with:
+          path: .ccache
+          key: tblgen-${{ matrix.llvm }}-${{ hashFiles('build.sh') }}-${{ github.run_id }}
+          restore-keys: |
+            tblgen-${{ matrix.llvm }}-${{ hashFiles('build.sh') }}-
+            tblgen-${{ matrix.llvm }}-
+
+      - name: Build llvm-tblgen and clang-tblgen
+        run: STAGE=tblgen ./build.sh "${LLVM_VERSION}"
+
+      # Uploaded as a tar because the artefact format drops the executable bit.
+      - name: Upload the generators
+        run: tar cf tblgen.tar llvm-tblgen-build/bin
+      - uses: actions/upload-artifact@v7
+        with:
+          name: tblgen-${{ matrix.llvm }}
+          path: tblgen.tar
+          retention-days: 7
+
+      - name: Save ccache
+        if: always()
+        uses: actions/cache/save@v6
+        with:
+          path: .ccache
+          key: tblgen-${{ matrix.llvm }}-${{ hashFiles('build.sh') }}-${{ github.run_id }}
+
+  build:
+    name: WebAssembly compiler and package (${{ matrix.llvm }})
+    needs: [pins, tblgen]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        llvm: ${{ fromJSON(needs.pins.outputs.versions) }}
+    env:
+      LLVM_VERSION: ${{ matrix.llvm }}
+    steps:
+      - uses: actions/checkout@v7
+
+      # The build tree, the LLVM checkout and the ccache together outgrow a runner's free space.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup
+          df -h /
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y ccache cmake flex bison time
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22.x'
+          registry-url: 'https://registry.npmjs.org'
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: tblgen-${{ matrix.llvm }}
+      - run: tar xf tblgen.tar
+
+      # Arm's own release, checked against the sha256 Arm publishes beside it: these libraries end up
+      # inside the package, so a substituted download would reach every program built with it.
+      - name: Assemble the ATfE sysroot
+        run: |
+          BASE_URL="https://github.com/arm/arm-toolchain/releases/download/release-${LLVM_VERSION}-ATfE"
+          cd "${RUNNER_TEMP}"
+          wget -q "${BASE_URL}/ATfE-${LLVM_VERSION}-Linux-x86_64.tar.xz" \
+                  "${BASE_URL}/ATfE-${LLVM_VERSION}-Linux-x86_64.tar.xz.sha256" \
+                  "${BASE_URL}/ATfE-newlib-nano-overlay-${LLVM_VERSION}.tar.xz" \
+                  "${BASE_URL}/ATfE-newlib-nano-overlay-${LLVM_VERSION}.tar.xz.sha256"
+          sha256sum -c "ATfE-${LLVM_VERSION}-Linux-x86_64.tar.xz.sha256"
+          sha256sum -c "ATfE-newlib-nano-overlay-${LLVM_VERSION}.tar.xz.sha256"
+          tar -xf "ATfE-${LLVM_VERSION}-Linux-x86_64.tar.xz"
+          tar -xf "ATfE-newlib-nano-overlay-${LLVM_VERSION}.tar.xz" -C "ATfE-${LLVM_VERSION}-Linux-x86_64"
+          cd "${GITHUB_WORKSPACE}"
+          ./atfe-sysroot.sh "${RUNNER_TEMP}/ATfE-${LLVM_VERSION}-Linux-x86_64"
+
+      - uses: actions/cache/restore@v6
+        with:
+          path: .ccache
+          key: llvm-${{ matrix.llvm }}-${{ hashFiles('build.sh', 'patches/**') }}-${{ github.run_id }}
+          restore-keys: |
+            llvm-${{ matrix.llvm }}-${{ hashFiles('build.sh', 'patches/**') }}-
+            llvm-${{ matrix.llvm }}-
+
+      # Time-boxed below the job limit so the cache is still saved, and measured: the final LTO link
+      # is one process that peaked at 14.7 GB locally, against a runner's 16 GB.
+      - name: Build LLVM for WebAssembly
+        id: llvm
+        run: |
+          ccache --zero-stats
+          set +e
+          /usr/bin/time -v -o time.log timeout --signal=INT 300m env STAGE=llvm ./build.sh "${LLVM_VERSION}"
+          status=$?
+          set -e
+          echo "status=${status}" >> "$GITHUB_OUTPUT"
+          grep -E 'Maximum resident set size|Elapsed \(wall clock\)' time.log || true
+          if [ "${status}" -eq 124 ]; then
+            echo "::warning::the build hit its time box; ccache is saved, re-run to carry on"
+          fi
+          # Whether the cache is working across runs decides whether a build fits in six hours.
+          ccache --show-stats
+          exit 0
+
+      - name: Save ccache
+        if: always()
+        uses: actions/cache/save@v6
+        with:
+          path: .ccache
+          key: llvm-${{ matrix.llvm }}-${{ hashFiles('build.sh', 'patches/**') }}-${{ github.run_id }}
+
+      - name: Fail if the build did not finish
+        run: |
+          test "${{ steps.llvm.outputs.status }}" = "0"
+          test -f llvm-build/bin/llvm
+
+      # prepare.py derives the version from what build.sh recorded and config.json's revision.
+      - name: Package
+        run: PYTHON=python3 ./package-npmjs.sh
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: package-${{ matrix.llvm }}
+          path: npmjs/dist/
+
+  test:
+    name: Smoke test (${{ matrix.llvm }}, Node ${{ matrix.node-version }})
+    needs: [pins, build]
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        llvm: ${{ fromJSON(needs.pins.outputs.versions) }}
+        node-version: ['22.x', '24.x']
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node-version }}
+      - uses: actions/download-artifact@v8
+        with:
+          name: package-${{ matrix.llvm }}
+          path: dist
+      # In a directory of its own, with the test copied in: run from the checkout, Node resolves the
+      # package from `npmjs/node_modules` beside the test file and quietly tests the wrong copy.
+      - name: Install the packed package and run the smoke test
+        run: |
+          mkdir -p "${RUNNER_TEMP}/smoke"
+          cp npmjs/test/test_api.mjs "${RUNNER_TEMP}/smoke/"
+          cd "${RUNNER_TEMP}/smoke"
+          npm init -y >/dev/null
+          npm install "${GITHUB_WORKSPACE}"/dist/*.tgz
+          node test_api.mjs
+
+  publish:
+    name: Publish (${{ matrix.llvm }})
+    needs: [pins, test]
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        llvm: ${{ fromJSON(needs.pins.outputs.versions) }}
+    # --provenance signs the package with a token from this job, which it only gets with this.
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22.x'
+          registry-url: 'https://registry.npmjs.org'
+      - uses: actions/download-artifact@v8
+        with:
+          name: package-${{ matrix.llvm }}
+          path: dist
+
+      # On every other run, so a metadata mistake surfaces long before the tag that publishes.
+      - name: Dry run
+        if: github.ref_type != 'tag'
+        run: npm publish dist/*.tgz --provenance --access public --dry-run
+
+      # Skipped when this version is already on npm, so a tag pushed without bumping the revision
+      # publishes nothing and says so. Under the line's own dist-tag, never `latest`: which line
+      # `latest` means is a decision, made by hand with `npm dist-tag add`.
+      - name: Publish
+        if: github.ref_type == 'tag'
+        run: |
+          tgz=$(ls dist/*.tgz)
+          name=$(tar -xOf "${tgz}" package/package.json | jq -r .name)
+          version=$(tar -xOf "${tgz}" package/package.json | jq -r .version)
+          if npm view "${name}@${version}" version >/dev/null 2>&1; then
+            echo "${name}@${version} is already published; nothing to do"
+          else
+            npm publish "${tgz}" --provenance --access public --tag "llvm-${version%%.*}"
+          fi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

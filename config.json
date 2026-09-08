@@ -1,0 +1,24 @@
+{
+    "revision": 0,
+    "llvm": {
+        "repository": "https://github.com/arm/arm-toolchain.git",
+        "default": "21.1.1",
+        "releases": {
+            "21.1.1": {
+                "tag": "release-21.1.1-ATfE",
+                "commit": "0bac08d50952133963671eeeb8c3e67695a32f49"
+            },
+            "22.1.0": {
+                "tag": "release-22.1.0-ATfE",
+                "commit": "d4f997caa50be1d1e5d351236c5e34d1eb4b6b43"
+            }
+        }
+    },
+    "wasiSdk": {
+        "version": 32,
+        "sha256": {
+            "arm64": "b2070865e6cb0c1e97a38e6ac8d9c37a9dfcd0752764ebabc6bacd3e60cedb96",
+            "x86_64": "55fc523ebfbc98f69d1034fcfcb83d1ff5610cd9ab7eceef6cd097a30ba4ef93"
+        }
+    }
+}

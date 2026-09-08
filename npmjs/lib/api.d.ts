@@ -39,6 +39,44 @@ export const runClang: Command;
 
 export const version: string;
 
+/** Where the packed resources mount the libraries and headers; pass it as `--sysroot`. */
+export const sysroot: string;
+
+export type SessionOptions = {
+    stdin?:  InputStream  | null;
+    stdout?: OutputStream | null;
+    stderr?: OutputStream | null;
+};
+
+// A filesystem that outlives one command. The commands above rebuild the whole tree per invocation,
+// which costs more than a small compile once a sysroot and a source bundle are in it; a session
+// keeps it, so a build of many files pays that once.
+export type Session = {
+    /** Runs a tool by the name a native toolchain uses, `llvm-` prefix and all, taking the driver
+      * replay when it is the compiler. Resolves to the exit code. */
+    run: (argv: string[], options?: SessionOptions) => Promise<number>;
+    /** Runs one tool by its bare name, with no driver replay. */
+    exec: (argv: string[], options?: SessionOptions) => Promise<number>;
+    /** Runs the compiler driver, replaying the sub-commands it reports with `-###`. */
+    clang: (argv: string[], options?: SessionOptions) => Promise<number>;
+    writeFile: (path: string, data: Uint8Array | string) => Promise<void>;
+    /** Merges a tree of nested objects with string or Uint8Array leaves at the root. */
+    writeTree: (tree: Tree) => Promise<void>;
+    readFile: (path: string) => Promise<Uint8Array | null>;
+    /** Removes a file or directory; does nothing if it is not there. */
+    remove: (path: string) => Promise<void>;
+};
+
+export function createSession(): Session;
+
+export type AssetLoader =
+    (name: string) => Promise<Uint8Array | Response> | Uint8Array | Response | null | undefined;
+
+// Supplies the package's own `.wasm` and `-resources.tar` by name, for a host that cannot fetch a
+// URL: `vscode.workspace.fs` in an extension, the filesystem in Node. Returning nothing falls back
+// to the generated loader. Set it before the first command runs, which is when they are read.
+export function setAssetLoader(loader: AssetLoader | null): void;
+
 export const commands: {
     'addr2line': Command,
     'size': Command,
@@ -48,6 +86,10 @@ export const commands: {
     'c++filt': Command,
     'ar': Command,
     'ranlib': Command,
+    'dwarfdump': Command,
+    'nm': Command,
+    'readobj': Command,
+    'symbolizer': Command,
     'wasm-ld': Command,
     'ld.lld': Command,
     'clang': Command,
