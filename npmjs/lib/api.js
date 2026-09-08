@@ -49,7 +49,10 @@ function runClang(args = null, files = {}, options = {}) {
       * @param {string} line
       * @return {string[]} */
     function unquoteClangArgs(line) {
-        return Array.from(line.matchAll(/ (?:([^ "]+)|"((?:[^"\\$]|\\["\\$])+)")/g), (match) => {
+        // `*` not `+` on the quoted alternative: clang marks a command it would have run in-process
+        // with an empty argument, which the loop below then shifts off, and dropping it here left
+        // that branch unreachable.
+        return Array.from(line.matchAll(/ (?:([^ "]+)|"((?:[^"\\$]|\\["\\$])*)")/g), (match) => {
             if (match[1] !== undefined) {
                 return match[1];
             } else if (match[2] !== undefined) {
@@ -96,69 +99,61 @@ function runClang(args = null, files = {}, options = {}) {
             throw hash3Error;
         }
 
-        // horrific in-band signaling code. please do not hold me to account for writing this
-        let state = 0;
+        // The banner before the command list is not a fixed set of lines: vendor builds add their
+        // own (ATfE prints `Arm Toolchain ID:`, and a configuration file adds another), and an
+        // unrecognised one used to discard the whole list and return the inputs unchanged, which
+        // looks exactly like a build that succeeded and compiled nothing. So the banner is skipped
+        // structurally instead: the list starts at the first quoted command line.
         /** @type {string[][]} */
         const commands = [];
+        let inList = false;
+        let malformed = false;
         for (const line of output.split("\n")) {
-            if (state === 0) { // header
-                if (!(line.startsWith("clang") ||
-                      line.startsWith("Target:") ||
-                      line.startsWith("Thread model:") ||
-                      line.startsWith("InstalledDir:") ||
-                      line.startsWith("Build config:"))) {
-                    state = 1;
-                }
-            }
-            if (state === 1) { // command lines
-                if (line === " (in-process)") {
-                    // Ignore; indicates clang would ordinarily invoke itself as a library for
-                    // the following command line. Since we do not have an ordinarily working
-                    // compiler driver (but rather a compiler driver²), all ordinarily in-process
-                    // invocations have to be performed with a separate `runLLVM` call.
-                } else if (line.startsWith(' "')) {
-                    commands.push(unquoteClangArgs(line));
-                } else if (line === "") {
-                    state = 2; // final command; success!
-                } else {
-                    state = 3; // unknown input; error!
-                }
+            // Indicates clang would ordinarily invoke itself as a library for the following command
+            // line. Since we do not have an ordinarily working compiler driver (but rather a
+            // compiler driver²), those invocations need a separate `runLLVM` call anyway.
+            if (line === " (in-process)")
                 continue;
-            }
-            if (state === 2) { // success
-                state = 3;
-            }
-            if (state === 3) { // error
+            if (line.startsWith(' "')) {
+                commands.push(unquoteClangArgs(line));
+                inList = true;
+            } else if (!inList) {
+                continue; // still in the banner
+            } else if (line === "") {
+                break; // the list ends at a blank line
+            } else {
+                malformed = true;
                 break;
             }
         }
-        if (state !== 2) { // no valid `-###` command list in the output
-            // Who knows what went wrong? Could have been an odd combination of options, could
-            // have been an error (with a zero exit code, other exit codes are handled above).
-            // We can't interpret the output of `-###` if there is even any, so just display it.
+        if (commands.length === 0 || malformed) {
+            // No command list to replay. Rather than guess which options cause that — the
+            // `-print-*` and `-dump*` queries report something and exit, but `-dumpdir` compiles
+            // like any other flag — hand the original arguments back to clang and let it decide.
+            // A query then prints and exits 0; anything else fails with clang's own diagnostic,
+            // never by quietly returning the inputs as though it had compiled them.
+            return yield runLLVM(args, files, options);
+        }
+        // Verbose? Print `-###` output. This will differ slightly from a desktop compiler,
+        // but is more in the spirit of the `-v` option.
+        if (args.includes('-v'))
             writeStderr(output);
-        } else { // valid `-###` command list recognized
-            // Verbose? Print `-###` output. This will differ slightly from a desktop compiler,
-            // but is more in the spirit of the `-v` option.
-            if (args.includes('-v'))
-                writeStderr(output);
-            // Run the command list.
-            for (const command of commands) {
-                if (command[0] === "") {
-                    // Clang would normally run this command in-process, which is indicated by
-                    // an empty argument in the command list, followed by clang's argv[0] for
-                    // this command. This distinction doesn't matter for us.
-                    command.shift();
-                }
-                // If this command line fails, the `Exit` exception will bubble up its exit code
-                // and output tree.
-                try {
-                    files = yield runLLVM(command, files, options);
-                } catch (err) {
-                    if (err instanceof Exit)
-                        delete err.files.tmp;
-                    throw err;
-                }
+        // Run the command list.
+        for (const command of commands) {
+            if (command[0] === "") {
+                // Clang would normally run this command in-process, which is indicated by
+                // an empty argument in the command list, followed by clang's argv[0] for
+                // this command. This distinction doesn't matter for us.
+                command.shift();
+            }
+            // If this command line fails, the `Exit` exception will bubble up its exit code
+            // and output tree.
+            try {
+                files = yield runLLVM(command, files, options);
+            } catch (err) {
+                if (err instanceof Exit)
+                    delete err.files.tmp;
+                throw err;
             }
         }
         delete files.tmp;
@@ -212,6 +207,7 @@ export const commands = {
     'symbolizer': subcommand(runLLVM, 'symbolizer'),
     // Compiler and linker
     'wasm-ld': subcommand(runLLVM, 'wasm-ld'),
+    'ld.lld': subcommand(runLLVM, 'ld.lld'), // ELF flavour of lld, which is what an Arm target links with
     'clang': subcommand(runClang, 'clang'),
     'clang++': subcommand(runClang, 'clang++'),
 };

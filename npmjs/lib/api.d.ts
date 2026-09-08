@@ -20,8 +20,9 @@ export type RunOptions = {
     fetchProgress?: ProgressCallback;
 };
 
+// `args` of null preloads the resources without running anything.
 export type Command =
-    (args?: string[], files?: Tree, options?: RunOptions) => Promise<Tree> | Tree | undefined;
+    (args?: string[] | null, files?: Tree, options?: RunOptions) => Promise<Tree> | Tree | undefined;
 
 export class Exit extends Error {
     code: number;
@@ -31,6 +32,12 @@ export class Exit extends Error {
 //--------8<--------8<--------8<--------8<--------8<--------8<--------8<--------8<--------8<--------
 
 export const runLLVM: Command;
+
+// Wraps runLLVM: replays the sub-commands the driver reports with `-###`, since the driver cannot
+// start subprocesses of its own here.
+export const runClang: Command;
+
+export const version: string;
 
 export const commands: {
     'addr2line': Command,
@@ -42,6 +49,7 @@ export const commands: {
     'ar': Command,
     'ranlib': Command,
     'wasm-ld': Command,
+    'ld.lld': Command,
     'clang': Command,
     'clang++': Command,
 };

@@ -1,23 +1,28 @@
 {
-    "name": "@yowasp/clang",
+    "name": "microbit-clang-wasm",
     "version": "__VERSION__",
-    "description": "LLVM/Clang/LLD toolchain targeting WebAssembly",
-    "author": "Catherine <whitequark@whitequark.org>",
-    "license": "ISC",
-    "homepage": "https://yowasp.org/",
+    "description": "Clang, LLD and the LLVM binutils as WebAssembly, targeting the BBC micro:bit's Cortex-M4, with Arm Toolchain for Embedded's newlib-nano and libc++",
+    "author": "Carlos Pereira Atencio",
+    "contributors": [
+        "Catherine <whitequark@whitequark.org> (the YoWASP/clang packaging this is derived from)"
+    ],
+    "license": "SEE LICENSE IN LICENSES",
+    "homepage": "https://github.com/carlosperate/microbit-clang-wasm",
     "repository": {
         "type": "git",
-        "url": "git+https://github.com/YoWASP/clang.git"
+        "url": "git+https://github.com/carlosperate/microbit-clang-wasm.git"
     },
     "bugs": {
-        "url": "https://github.com/YoWASP/clang/issues"
+        "url": "https://github.com/carlosperate/microbit-clang-wasm/issues"
     },
     "type": "module",
     "files": [
         "lib/api.d.ts",
         "gen/bundle.js",
         "gen/*-resources.tar",
-        "gen/*.wasm"
+        "gen/*.wasm",
+        "LICENSE.txt",
+        "LICENSES"
     ],
     "exports": {
         "types": "./lib/api.d.ts",

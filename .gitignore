@@ -4,3 +4,9 @@
 /*-build
 /*-prefix
 /Toolchain-WASI*.cmake
+
+# build.sh clones the pinned LLVM source here and caches compiles here; the ATfE sysroot is a
+# release download that can be dropped here to be picked up without an argument.
+/llvm-src
+/.ccache
+/atfe-sysroot

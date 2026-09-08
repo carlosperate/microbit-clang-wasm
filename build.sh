@@ -1,14 +1,110 @@
-#!/bin/sh -ex
+#!/bin/sh
+set -ex
 
-export SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)
+# Set by the caller when this runs outside a git checkout.
+export SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH:-$(git log -1 --format=%ct 2>/dev/null || echo 0)}
 
+# CMake here generates makefiles, which build serially unless told otherwise.
+if [ -z "${MAKEFLAGS:-}" ]; then
+  MAKEFLAGS=-j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
+  export MAKEFLAGS
+fi
+
+# ccache is on by default in the CMake invocations below, so give it somewhere to live that survives
+# between runs without being inside a build directory. A cold LLVM build fills a few GB.
+export CCACHE_DIR=${CCACHE_DIR:-$(pwd)/.ccache}
+export CCACHE_MAXSIZE=${CCACHE_MAXSIZE:-10G}
+
+# Which ATfE release to build. One knob, as an argument or an environment variable:
+#   ./build.sh 22.1.0        LLVM_VERSION=22.1.0 ./build.sh
+# The default tracks the newest version actually built and tested here, not the newest that exists.
+DEFAULT_LLVM_VERSION=21.1.1
+LLVM_VERSION=${1:-${LLVM_VERSION:-${DEFAULT_LLVM_VERSION}}}
+LLVM_TAG=release-${LLVM_VERSION}-ATfE
+
+# Everything that version needs lives in one directory: the patches, and the commit its tag pointed
+# at. So `ls patches/` is the list of versions this repository can build, and there is no separate
+# mapping to fall out of step. The patches have to be per version because the WASI change differs
+# between them: 21 files on the 21.x branch, 23 on 22.x.
+#
+# Each directory is self-contained, and a patch shared between versions is copied rather than
+# referenced. That is deliberate: patch context drifts between releases, so a shared patch would
+# have to be edited when one release moves those lines, which would silently change what an older
+# version builds from. Copying keeps every version independently reproducible.
+PATCH_DIR=patches/${LLVM_TAG}
+if ! [ -d "${PATCH_DIR}" ]; then
+  echo "no patches for ${LLVM_VERSION}. Add ${PATCH_DIR}, or build one of:" >&2
+  ls patches | sed 's/^release-/  /; s/-ATfE$//' >&2
+  exit 1
+fi
+
+# An empty directory would build an unpatched compiler, and the WASI change is not optional. Worth
+# a check because that failure surfaces hours later and nowhere near its cause; a missing or
+# malformed llvm-commit, by contrast, fails immediately and says so itself.
+if ! ls "${PATCH_DIR}"/*.patch >/dev/null 2>&1; then
+  echo "${PATCH_DIR} has no patches, so this would build an unpatched compiler" >&2
+  exit 1
+fi
+read -r LLVM_COMMIT < "${PATCH_DIR}/llvm-commit"
+
+# The ATfE tags are not consistently annotated — 21.1.1 is lightweight, 22.1.0 is not — so the
+# commit is checked after cloning rather than resolved from the tag beforehand. It also catches a
+# moved tag, and a stale llvm-src left over from building a different version.
+LLVM_REPO=${LLVM_REPO:-https://github.com/arm/arm-toolchain.git}
+if ! [ -e llvm-src/llvm/CMakeLists.txt ]; then
+  git clone --depth 1 --single-branch --branch "${LLVM_TAG}" "${LLVM_REPO}" llvm-src
+fi
+llvm_head=$(git -C llvm-src rev-parse HEAD)
+if [ "${llvm_head}" != "${LLVM_COMMIT}" ]; then
+  echo "llvm-src is at ${llvm_head}, but ${LLVM_TAG} is ${LLVM_COMMIT}." >&2
+  echo "Remove llvm-src to re-clone, or build the version it holds." >&2
+  exit 1
+fi
+echo "building LLVM ${LLVM_VERSION} (${LLVM_TAG}, ${LLVM_COMMIT})"
+
+# ATfE's libraries and headers for the micro:bit's CPU, arranged as a flat sysroot: lib/ from the
+# armv7m_soft_fpv4_sp_d16_unaligned_size variant, include/ from the shared newlib-nano headers.
+# Checked now because it is not used until the very end, so a missing one otherwise wastes the build.
+# licenses/ is required, not optional: we redistribute newlib, libc++ and compiler-rt binaries, and
+# their notices have to go with them. Copy ATfE's THIRD-PARTY-LICENSES.txt and third-party-licenses/
+# into the sysroot when assembling it.
+ATFE_SYSROOT=${ATFE_SYSROOT:-$(pwd)/atfe-sysroot}
+ls -d "${ATFE_SYSROOT}/include" "${ATFE_SYSROOT}/lib" "${ATFE_SYSROOT}/licenses" >/dev/null
+
+# The toolchain that compiles LLVM to wasm. It is a host build tool and is not shipped, but it does
+# decide what our binary contains, so it is pinned by version and checked by digest.
 WASI_VER=32
-WASI_SDK=wasi-sdk-${WASI_VER}.0-x86_64-linux
+WASI_ARCH=$(uname -m | sed 's/aarch64/arm64/')
+WASI_SDK=wasi-sdk-${WASI_VER}.0-${WASI_ARCH}-linux
 WASI_SDK_URL=https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-${WASI_VER}/${WASI_SDK}.tar.gz
-if ! [ -d ${WASI_SDK} ]; then curl -L ${WASI_SDK_URL} | tar xzf -; fi
+case ${WASI_ARCH} in
+  arm64)  WASI_SDK_SHA256=b2070865e6cb0c1e97a38e6ac8d9c37a9dfcd0752764ebabc6bacd3e60cedb96 ;;
+  x86_64) WASI_SDK_SHA256=55fc523ebfbc98f69d1034fcfcb83d1ff5610cd9ab7eceef6cd097a30ba4ef93 ;;
+  *)      echo "no wasi-sdk digest recorded for ${WASI_ARCH}" >&2; exit 1 ;;
+esac
+if ! [ -d "${WASI_SDK}" ]; then
+  # Downloaded to a file rather than piped into tar, so the digest is checked before anything is
+  # unpacked. Removed afterwards; it is 136 MB.
+  curl -L -o "${WASI_SDK}.tar.gz" "${WASI_SDK_URL}"
+  echo "${WASI_SDK_SHA256}  ${WASI_SDK}.tar.gz" | sha256sum -c -
+  tar xzf "${WASI_SDK}.tar.gz"
+  rm -f "${WASI_SDK}.tar.gz"
+fi
 WASI_SDK_PATH=$(pwd)/${WASI_SDK}
 
+# Applying the changes here rather than keeping a fork of llvm-project means every version bump is a
+# `git apply --check` against the new tag.
+for patch in "${PATCH_DIR}"/*.patch; do
+  if git -C llvm-src apply --check --reverse "$(pwd)/${patch}" 2>/dev/null; then
+    echo "already applied: ${patch}"
+  else
+    git -C llvm-src apply "$(pwd)/${patch}"
+  fi
+done
+
 WASI_TARGET="wasm32-wasip1"
+# What the compiler we are building targets, as opposed to what it runs on.
+TARGET_TRIPLE="arm-none-eabi"
 WASI_CFLAGS="--sysroot ${WASI_SDK_PATH}/share/wasi-sysroot -mcpu=lime1"
 WASI_LDFLAGS="--sysroot ${WASI_SDK_PATH}/share/wasi-sysroot"
 WASI_CFLAGS_LLVM="${WASI_CFLAGS}"
@@ -26,12 +122,8 @@ WASI_LDFLAGS_LLVM="${WASI_LDFLAGS_LLVM} -Wl,-z,stack-size=8388608,--stack-first"
 WASI_CFLAGS_LLVM="${WASI_CFLAGS_LLVM} -flto"
 WASI_LDFLAGS_LLVM="${WASI_LDFLAGS_LLVM} -flto -Wl,--strip-all"
 
-cat >Toolchain-WASI.cmake <<END
-include(${WASI_SDK_PATH}/share/cmake/wasi-sdk-p1.cmake)
-set(CMAKE_C_FLAGS "${WASI_CFLAGS}")
-set(CMAKE_CXX_FLAGS "${WASI_CFLAGS}")
-set(CMAKE_EXE_LINKER_FLAGS "${WASI_LDFLAGS}")
-END
+# Upstream also wrote a Toolchain-WASI.cmake here for its compiler-rt, wasi-libc and libc++ builds.
+# Those are gone, replaced by ATfE's libraries, so only the one below is used.
 cat >Toolchain-WASI-LLVM.cmake <<END
 include(${WASI_SDK_PATH}/share/cmake/wasi-sdk-p1.cmake)
 set(CMAKE_C_FLAGS "${WASI_CFLAGS_LLVM}")
@@ -44,9 +136,12 @@ END
 
 LLVM_VERSION_MAJOR=$(cmake -P Get-LLVM-Version.cmake 2>&1)
 
-if ! [ -f llvm-tblgen-build/bin/llvm-tblgen -a -f llvm-tblgen-build/bin/clang-tblgen ]; then
-  mkdir -p llvm-tblgen-build
-  cmake -B llvm-tblgen-build -S llvm-src/llvm \
+# Upstream skips this whenever the two executables exist. Our build directory lives in a volume that
+# outlives the LLVM checkout, so that would hand a new LLVM its predecessor's generators; the 21 to
+# 22 move would hit it. Configure and build unconditionally instead and let CMake decide what is
+# actually stale, which costs nothing when nothing changed.
+mkdir -p llvm-tblgen-build
+cmake -B llvm-tblgen-build -S llvm-src/llvm \
     -DLLVM_CCACHE_BUILD=ON \
     -DCMAKE_BUILD_TYPE=MinSizeRel \
     -DLLVM_BUILD_RUNTIME=OFF \
@@ -57,14 +152,13 @@ if ! [ -f llvm-tblgen-build/bin/llvm-tblgen -a -f llvm-tblgen-build/bin/clang-tb
     -DLLVM_INCLUDE_TESTS=OFF \
     -DLLVM_INCLUDE_BENCHMARKS=OFF \
     -DLLVM_INCLUDE_DOCS=OFF \
-    -DLLVM_TARGETS_TO_BUILD=WebAssembly \
-    -DLLVM_DEFAULT_TARGET_TRIPLE=${WASI_TARGET} \
+    -DLLVM_TARGETS_TO_BUILD=ARM \
+    -DLLVM_DEFAULT_TARGET_TRIPLE=${TARGET_TRIPLE} \
     -DLLVM_ENABLE_PROJECTS="clang" \
     -DCLANG_BUILD_EXAMPLES=OFF \
     -DCLANG_BUILD_TOOLS=OFF \
     -DCLANG_INCLUDE_TESTS=OFF
-  cmake --build llvm-tblgen-build --target llvm-tblgen --target clang-tblgen
-fi
+cmake --build llvm-tblgen-build --target llvm-tblgen --target clang-tblgen
 
 mkdir -p llvm-build
 cmake -B llvm-build -S llvm-src/llvm \
@@ -72,7 +166,7 @@ cmake -B llvm-build -S llvm-src/llvm \
   -DLLVM_CCACHE_BUILD=ON \
   -DLLVM_NATIVE_TOOL_DIR=$(pwd)/llvm-tblgen-build/bin \
   -DCMAKE_BUILD_TYPE=MinSizeRel \
-  -DLLVM_ENABLE_ASSERTIONS=ON \
+  -DLLVM_ENABLE_ASSERTIONS=OFF \
   -DLLVM_BUILD_SHARED_LIBS=OFF \
   -DLLVM_ENABLE_PIC=OFF \
   -DLLVM_BUILD_STATIC=ON \
@@ -86,8 +180,8 @@ cmake -B llvm-build -S llvm-src/llvm \
   -DLLVM_INCLUDE_TESTS=OFF \
   -DLLVM_INCLUDE_BENCHMARKS=OFF \
   -DLLVM_INCLUDE_DOCS=OFF \
-  -DLLVM_TARGETS_TO_BUILD=WebAssembly \
-  -DLLVM_DEFAULT_TARGET_TRIPLE=${WASI_TARGET} \
+  -DLLVM_TARGETS_TO_BUILD=ARM \
+  -DLLVM_DEFAULT_TARGET_TRIPLE=${TARGET_TRIPLE} \
   -DLLVM_TOOL_BUGPOINT_BUILD=OFF \
   -DLLVM_TOOL_BUGPOINT_PASSES_BUILD=OFF \
   -DLLVM_TOOL_DSYMUTIL_BUILD=OFF \
@@ -105,6 +199,7 @@ cmake -B llvm-build -S llvm-src/llvm \
   -DLLVM_TOOL_LLVM_COV_BUILD=OFF \
   -DLLVM_TOOL_LLVM_CVTRES_BUILD=OFF \
   -DLLVM_TOOL_LLVM_CXXDUMP_BUILD=OFF \
+  -DLLVM_TOOL_LLVM_CGDATA_BUILD=OFF \
   -DLLVM_TOOL_LLVM_CXXFILT_BUILD=ON \
   -DLLVM_TOOL_LLVM_CXXMAP_BUILD=OFF \
   -DLLVM_TOOL_LLVM_C_TEST_BUILD=OFF \
@@ -194,69 +289,29 @@ cmake -B llvm-build -S llvm-src/llvm \
   -DLLD_BUILD_TOOLS=OFF \
   -DCMAKE_INSTALL_PREFIX=llvm-prefix \
   -DDEFAULT_SYSROOT=/usr \
-  -DCLANG_RESOURCE_DIR=/usr
+  -DCLANG_RESOURCE_DIR=/usr/lib/clang/${LLVM_VERSION_MAJOR}
 # The "all" target still contains far too much stuff, even given all the options above, so build
 # only Clang/LLD, explicitly. For the same reason using the "install" target is infeasible.
 # I spent a while trying and it leads nowhere.
 cmake --build llvm-build --target llvm-driver
 cmake --build llvm-build --target clang-resource-headers
 
-# Install the headers manually.
-# Install the headers also manually.
+# Where upstream builds compiler-rt, wasi-libc and libc++ for wasm32, we take newlib-nano, libc++,
+# libc++abi and compiler-rt from the pinned ATfE release instead: they are Arm target artefacts, so
+# the host build of ATfE they came from does not matter, and they are the same libraries the native
+# reference build links against.
 mkdir -p wasi-prefix/usr/
-rm -rf wasi-prefix/usr/include
-cp -v -r llvm-build/usr/include wasi-prefix/usr/
+rm -rf wasi-prefix/usr/include wasi-prefix/usr/lib
+cp -r "${ATFE_SYSROOT}/include" wasi-prefix/usr/
+cp -r "${ATFE_SYSROOT}/lib" wasi-prefix/usr/
+mkdir -p wasi-prefix/usr/share
+rm -rf wasi-prefix/usr/share/licenses
+cp -r "${ATFE_SYSROOT}/licenses" wasi-prefix/usr/share/licenses
 
-# Options below heavily based on wasi-sdk.
-mkdir -p compiler-rt-build
-cmake -B compiler-rt-build -S llvm-src/compiler-rt \
-  -DCMAKE_TOOLCHAIN_FILE=../Toolchain-WASI.cmake \
-  -DCOMPILER_RT_BAREMETAL_BUILD=ON \
-  -DCOMPILER_RT_BUILD_XRAY=OFF \
-  -DCOMPILER_RT_INCLUDE_TESTS=OFF \
-  -DCOMPILER_RT_HAS_FPIC_FLAG=OFF \
-  -DCOMPILER_RT_ENABLE_IOS=OFF \
-  -DCOMPILER_RT_DEFAULT_TARGET_ONLY=ON \
-  -DLLVM_ENABLE_PER_TARGET_RUNTIME_DIR=ON \
-  -DCMAKE_INSTALL_PREFIX=wasi-prefix/usr
-cmake --build compiler-rt-build --target install
-
-# There are many false positives with `check-symbols`, and the upstream eventually
-# moved to not check it by default too.
-mkdir -p wasi-libc-build
-cmake -B wasi-libc-build -S wasi-libc-src \
-  -DCMAKE_TOOLCHAIN_FILE=../Toolchain-WASI.cmake \
-  -DCMAKE_C_COMPILER_LAUNCHER=ccache \
-  -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-  -DTARGET_TRIPLE=${WASI_TARGET} \
-  -DBUILTINS_LIB=$(pwd)/wasi-prefix/usr/lib/wasm32-unknown-wasip1/libclang_rt.builtins.a \
-  -DCMAKE_INSTALL_PREFIX=wasi-prefix/usr
-cmake --build wasi-libc-build --target install
-
-# Options below heavily based on wasi-sdk.
-mkdir -p libcxx-build
-cmake -B libcxx-build -S llvm-src/runtimes \
-  -DCMAKE_TOOLCHAIN_FILE=../Toolchain-WASI.cmake \
-  -DLLVM_ENABLE_RUNTIMES:STRING="libcxx;libcxxabi" \
-  -DLIBCXX_ENABLE_THREADS:BOOL=ON \
-  -DLIBCXX_BUILD_EXTERNAL_THREAD_LIBRARY:BOOL=ON \
-  -DLIBCXX_ENABLE_SHARED:BOOL=OFF \
-  -DLIBCXX_ENABLE_EXCEPTIONS:BOOL=OFF \
-  -DLIBCXX_ENABLE_FILESYSTEM:BOOL=ON \
-  -DLIBCXX_ENABLE_EXPERIMENTAL_LIBRARY:BOOL=OFF \
-  -DLIBCXX_ENABLE_ABI_LINKER_SCRIPT:BOOL=OFF \
-  -DLIBCXX_CXX_ABI=libcxxabi \
-  -DLIBCXX_CXX_ABI_INCLUDE_PATHS=$(pwd)/llvm-src/libcxxabi/include \
-  -DLIBCXX_HAS_MUSL_LIBC:BOOL=ON \
-  -DLIBCXX_ABI_VERSION=2 \
-  -DLIBCXXABI_ENABLE_THREADS:BOOL=ON \
-  -DLIBCXXABI_BUILD_EXTERNAL_THREAD_LIBRARY:BOOL=ON \
-  -DLIBCXXABI_ENABLE_PIC:BOOL=OFF \
-  -DLIBCXXABI_ENABLE_SHARED:BOOL=OFF \
-  -DLIBCXXABI_ENABLE_EXCEPTIONS:BOOL=OFF \
-  -DLIBCXXABI_USE_LLVM_UNWINDER:BOOL=OFF \
-  -DLIBCXXABI_SILENT_TERMINATE:BOOL=ON \
-  -DLIBCXX_LIBDIR_SUFFIX=/${WASI_TARGET} \
-  -DLIBCXXABI_LIBDIR_SUFFIX=/${WASI_TARGET} \
-  -DCMAKE_INSTALL_PREFIX=wasi-prefix/usr
-cmake --build libcxx-build --target install
+# The Clang builtin headers go in the resource directory beside the sysroot, never merged into it:
+# Clang's stdint.h and friends reach the C library's with #include_next, which needs the two include
+# directories to stay distinct. This is where a normal LLVM install puts them.
+mkdir -p wasi-prefix/usr/lib/clang/${LLVM_VERSION_MAJOR}
+rm -rf wasi-prefix/usr/lib/clang/${LLVM_VERSION_MAJOR}/include
+cp -r llvm-build/usr/lib/clang/${LLVM_VERSION_MAJOR}/include \
+  wasi-prefix/usr/lib/clang/${LLVM_VERSION_MAJOR}/
