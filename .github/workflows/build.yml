@@ -20,6 +20,9 @@ concurrency:
 
 env:
   CCACHE_MAXSIZE: 5G
+  # build.sh defaults this to the checkout's .ccache. Naming it here points the workflow's own
+  # `ccache` calls at that same directory, rather than the empty default their stats reported.
+  CCACHE_DIR: ${{ github.workspace }}/.ccache
 
 jobs:
   pins:
@@ -158,7 +161,7 @@ jobs:
             llvm-${{ matrix.llvm }}-
 
       # Time-boxed below the job limit so the cache is still saved, and measured: the final LTO link
-      # is one process that peaked at 14.7 GB locally, against a runner's 16 GB.
+      # is one process, and a cold build peaked at 14.53 GB of a runner's 16 GB in 2 h 04 m.
       - name: Build LLVM for WebAssembly
         id: llvm
         run: |
@@ -250,7 +253,7 @@ jobs:
       # On every other run, so a metadata mistake surfaces long before the tag that publishes.
       - name: Dry run
         if: github.ref_type != 'tag'
-        run: npm publish dist/*.tgz --provenance --access public --dry-run
+        run: npm publish ./dist/*.tgz --provenance --access public --dry-run
 
       # Skipped when this version is already on npm, so a tag pushed without bumping the revision
       # publishes nothing and says so. Under the line's own dist-tag, never `latest`: which line
@@ -258,7 +261,7 @@ jobs:
       - name: Publish
         if: github.ref_type == 'tag'
         run: |
-          tgz=$(ls dist/*.tgz)
+          tgz=./$(ls dist/*.tgz)  # ./ so npm reads a file path, not an owner/repo shorthand
           name=$(tar -xOf "${tgz}" package/package.json | jq -r .name)
           version=$(tar -xOf "${tgz}" package/package.json | jq -r .version)
           if npm view "${name}@${version}" version >/dev/null 2>&1; then
