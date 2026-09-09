@@ -33,8 +33,9 @@ of this package's own JavaScript and build scripts, where:
 - PATCH is a single number for the packaging: the JavaScript, the build scripts, the sysroot
 
 ```
-    21 . 11 . 3
-    └┬┘  └┬┘  └┬┘
+    21 . 11 . 3 [-alpha.1]
+    └┬┘  └┬┘  └┬┘   └┬┘
+     │    │    │     └── optional, while the packaging is still settling
      │    │    └── packaging version
      │    └─────── LLVM minor.patch (1.1)
      └──────────── LLVM major
@@ -43,11 +44,16 @@ of this package's own JavaScript and build scripts, where:
 So `~21.11.0` locks to Arm Toolchain for Embedded 21.1.1 while taking packaging fixes, and `^21.10.0`
 takes any 21.x. What is inside is also recorded: `npm view microbit-clang-wasm llvm`.
 
+Until the packaging settles, `config.json`'s `prerelease` adds a semver prerelease part, so
+`21.11.0-alpha.1` is the first attempt at packaging revision 0. Those can be published and
+superseded without spending a revision number; clear the key for a real release.
+
 Everything is defined once, in `config.json`: the LLVM lines with their tags and commits, which one
-`build.sh` builds by default, the wasi-sdk pin, and `revision`, the packaging number — one number
-for the whole repository, since the same JavaScript builds every line. To release, bump `revision`
-and push a tag: CI builds every line and publishes `21.11.3`, `22.10.3`, … each under the dist-tag
-`llvm-<major>`; versions already on npm are skipped. `latest` is moved by hand.
+`build.sh` builds by default, the wasi-sdk pin, `revision`, the packaging number — one number for
+the whole repository, since the same JavaScript builds every line — and `prerelease`. To release,
+bump `revision` and push a tag: CI builds every line and publishes `21.11.3`, `22.10.3`, … each
+under the dist-tag `llvm-<major>`; versions already on npm are skipped. `latest` is moved by hand,
+which is also what keeps it off a prerelease.
 
 ## Building
 

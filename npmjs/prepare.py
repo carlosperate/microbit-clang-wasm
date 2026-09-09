@@ -5,6 +5,8 @@ import json
 # packaging revision 3. The revision is one number for the whole repository, since the same
 # JavaScript and scripts build every LLVM line, and it lives in config.json with everything else.
 # LLVM's minor has been a constant 1 since LLVM 18 by policy, which keeps the encoding decodable.
+# config.json's optional `prerelease` appends a semver prerelease part until the packaging settles,
+# so those attempts can be published and superseded without spending a revision number.
 
 with open("../config.json", "rt") as f:
     config = json.load(f)
@@ -19,6 +21,8 @@ if minor != 1:
     raise SystemExit(f"LLVM {llvm['version']} has minor {minor}; the version scheme assumes 1")
 
 version = f"{major}.{10 * minor + patch}.{config['revision']}"
+if config.get("prerelease"):
+    version += f"-{config['prerelease']}"
 
 with open("package-in.json", "rt") as f:
     package_json = json.load(f)
