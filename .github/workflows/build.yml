@@ -1,14 +1,16 @@
 name: Build & publish
 
-# config.json defines the LLVM lines and the packaging revision. A tag (any name) builds every line
-# and publishes each as <encoded LLVM>.<revision>, skipping versions already on npm; an ordinary
-# push builds only the default line. Builds are time-boxed so a run out of time still saves ccache.
+# config.json defines the LLVM lines and the packaging revision. Publishing a GitHub Release builds
+# every line and publishes each as <encoded LLVM>.<revision>, skipping versions already on npm; an
+# ordinary push builds only the default line. Builds are time-boxed so a run out of time still saves
+# ccache. Tags do not build: a release creates one, and two runs for one release is a wasted hour.
 
 on:
   push:
     branches: '**'
-    tags: '*'
   pull_request:
+  release:
+    types: [published]
   workflow_dispatch:
     inputs:
       version:
@@ -40,7 +42,7 @@ jobs:
           jq -e .llvm.default config.json >/dev/null   # a renamed key would otherwise become a null matrix entry
           if [ -n "${{ inputs.version }}" ]; then
             chosen='["${{ inputs.version }}"]'
-          elif [ "${GITHUB_REF_TYPE}" = tag ]; then
+          elif [ "${GITHUB_EVENT_NAME}" = release ]; then
             chosen=$(jq -c '.llvm.releases | keys' config.json)
           else
             chosen=$(jq -c '[.llvm.default]' config.json)
@@ -252,14 +254,14 @@ jobs:
 
       # On every other run, so a metadata mistake surfaces long before the tag that publishes.
       - name: Dry run
-        if: github.ref_type != 'tag'
+        if: github.event_name != 'release'
         run: npm publish ./dist/*.tgz --provenance --access public --dry-run
 
-      # Skipped when this version is already on npm, so a tag pushed without bumping the revision
+      # Skipped when this version is already on npm, so a release made without bumping the revision
       # publishes nothing and says so. Under the line's own dist-tag, never `latest`: which line
       # `latest` means is a decision, made by hand with `npm dist-tag add`.
       - name: Publish
-        if: github.ref_type == 'tag'
+        if: github.event_name == 'release'
         run: |
           tgz=./$(ls dist/*.tgz)  # ./ so npm reads a file path, not an owner/repo shorthand
           name=$(tar -xOf "${tgz}" package/package.json | jq -r .name)

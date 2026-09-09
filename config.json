@@ -8,10 +8,6 @@
             "21.1.1": {
                 "tag": "release-21.1.1-ATfE",
                 "commit": "0bac08d50952133963671eeeb8c3e67695a32f49"
-            },
-            "22.1.0": {
-                "tag": "release-22.1.0-ATfE",
-                "commit": "d4f997caa50be1d1e5d351236c5e34d1eb4b6b43"
             }
         }
     },

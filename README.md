@@ -51,9 +51,9 @@ superseded without spending a revision number; clear the key for a real release.
 Everything is defined once, in `config.json`: the LLVM lines with their tags and commits, which one
 `build.sh` builds by default, the wasi-sdk pin, `revision`, the packaging number — one number for
 the whole repository, since the same JavaScript builds every line — and `prerelease`. To release,
-bump `revision` and push a tag: CI builds every line and publishes `21.11.3`, `22.10.3`, … each
-under the dist-tag `llvm-<major>`; versions already on npm are skipped. `latest` is moved by hand,
-which is also what keeps it off a prerelease.
+bump `revision` and publish a GitHub Release: CI builds every line in `config.json` and publishes
+`21.11.3`, `22.10.3`, … each under the dist-tag `llvm-<major>`; versions already on npm are skipped.
+`latest` is moved by hand, which is also what keeps it off a prerelease.
 
 ## Building
 
