@@ -1,6 +1,18 @@
 # Changelog
 
-## 21.11.0-alpha.1
+Releases are named after the packaging revision in `config.json`, because one release can publish an
+npm package per LLVM line. The versions each one published are listed under it.
+
+## v0-alpha.2 - Unreleased
+
+- Every CI build checks that the packaged compiler turns the same source and flags into the same
+  object as Arm's own Clang, byte for byte, for a C++ unit with CODAL's flags and a C unit against
+  newlib.
+- The npm package is also attached to its GitHub release.
+
+## v0-alpha.1 - 2026-09-10
+
+Published `microbit-clang-wasm@21.11.0-alpha.1`.
 
 First release of this fork: Clang, LLD and the LLVM binutils as WebAssembly, for the BBC micro:bit.
 
@@ -20,4 +32,5 @@ First release of this fork: Clang, LLD and the LLVM binutils as WebAssembly, for
 ## Before this fork
 
 Everything up to commit `ab5516d` is [YoWASP/clang](https://codeberg.org/YoWASP/clang) by Catherine
-(whitequark), which this repository is a fork of. Its history, releases and changelog live there.
+(whitequark), which this repository is a fork of.
+Its history, releases and changelog live there.
