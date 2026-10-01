@@ -1,0 +1,13 @@
+case/main.cpp:3:5: error: no matching function for call to 'f'
+    3 |     f();
+      |     ^
+case/a.h:1:6: note: candidate function not viable: requires 1 argument, but 0 were provided
+    1 | void f(int);
+      |      ^ ~~~
+case/a.h:2:35: error: member reference base type 'int' is not a structure or union
+    2 | template <class T> void g(T t) { t.nope(); }
+      |                                  ~^~~~~
+case/main.cpp:4:5: note: in instantiation of function template specialization 'g<int>' requested here
+    4 |     g(1);
+      |     ^
+2 errors generated.

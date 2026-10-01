@@ -50,6 +50,18 @@ jobs:
           echo "versions=${chosen}" >> "$GITHUB_OUTPUT"
           echo "building ${chosen} at revision $(jq -r .revision config.json)"
 
+  # Output stored from each LLVM line, so a reader mistake fails in seconds, not after the build.
+  reader:
+    name: Diagnostics reader, stored output
+    needs: pins
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22.x'
+      - run: node --test npmjs/test/test_diagnostics.mjs
+
   tblgen:
     name: Native code generators (${{ matrix.llvm }})
     needs: pins
@@ -237,7 +249,7 @@ jobs:
       - name: Install the packed package and run the smoke test
         run: |
           mkdir -p "${RUNNER_TEMP}/smoke"
-          cp npmjs/test/test_api.mjs "${RUNNER_TEMP}/smoke/"
+          cp -R npmjs/test/test_api.mjs npmjs/test/diagnostics "${RUNNER_TEMP}/smoke/"
           cd "${RUNNER_TEMP}/smoke"
           npm init -y >/dev/null
           npm install "${GITHUB_WORKSPACE}"/dist/*.tgz
@@ -245,7 +257,7 @@ jobs:
 
   publish:
     name: Publish (${{ matrix.llvm }})
-    needs: [pins, test]
+    needs: [pins, reader, test]
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false

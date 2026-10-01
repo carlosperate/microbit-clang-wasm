@@ -4,10 +4,9 @@
 // compiler targets a Cortex-M4, so the output cannot be run here; the checks are that it is ARM
 // code, that the linker is reachable, and that a broken file fails with a useful diagnostic.
 
-const { commands, createSession, setAssetLoader } = await import('microbit-clang-wasm');
+const { commands, createSession, readDiagnostics, setAssetLoader } = await import('microbit-clang-wasm');
 const { readFile, stat } = await import('node:fs/promises');
-
-const CPU = ['--target=arm-none-eabi', '-mcpu=cortex-m4', '-mthumb', '-mfpu=fpv4-sp-d16', '-mfloat-abi=softfp'];
+const { CPU, cases, produce, verify } = await import('./diagnostics/cases.mjs');
 const SYSROOT = '--sysroot=/usr';
 
 // An extension host has no URL to fetch and no filesystem the generated loader can reach, so the
@@ -122,5 +121,18 @@ const rejected = await session.clang(
     { stderr: (bytes) => bytes && (sessionDiagnostics += new TextDecoder().decode(bytes)) },
 );
 check(rejected !== 0 && /error:/.test(sessionDiagnostics), 'a session reports a failure with its diagnostic');
+
+// What this compiler prints, read by the reader packaged with it: each LLVM line's own check.
+const reading = createSession();
+for (const testCase of cases) {
+    let failure = null;
+    try {
+        verify(testCase, await produce(reading, testCase), readDiagnostics);
+    } catch (error) {
+        failure = error;
+        console.error(error);
+    }
+    check(failure === null, `the diagnostics reader reads ${testCase.name} as this compiler prints it`);
+}
 
 console.log('all checks passed');

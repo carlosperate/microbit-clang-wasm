@@ -1,0 +1,11 @@
+case/main.cpp:1:45: error: static assertion failed due to requirement 'sizeof(int) == 0': first line
+second line
+    1 | template <class T> void f() { static_assert(sizeof(T) == 0, "first line\nsecond line"); }
+      |                                             ^~~~~~~~~~~~~~
+case/main.cpp:2:14: note: in instantiation of function template specialization 'f<int>' requested here
+    2 | int main() { f<int>(); }
+      |              ^
+case/main.cpp:1:55: note: expression evaluates to '4 == 0'
+    1 | template <class T> void f() { static_assert(sizeof(T) == 0, "first line\nsecond line"); }
+      |                                             ~~~~~~~~~~^~~~
+1 error generated.

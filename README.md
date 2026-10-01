@@ -1,24 +1,25 @@
 # microbit-clang-wasm
 
-A fork of [YoWASP/clang](https://codeberg.org/YoWASP/clang) by Catherine (whitequark), which builds
-Clang and LLD as WebAssembly so they can run in a browser or in Node.
+A fork of [YoWASP/clang](https://codeberg.org/YoWASP/clang) by
+[@whitequark](https://codeberg.org/whitequark), which builds Clang and LLD to WebAssembly
+so it can be run in a browser or in Node.
 
-**The goal of this fork:** make the compiler build BBC micro:bit programs. The browser equivalent
-of installing `arm-none-eabi-gcc`, so CODAL is not in here, this package is wrapped with CODAL in 
+The goal of this fork is to be able to build BBC micro:bit C++ programs in the browser.
+This package is wrapped with CODAL in 
 [microbit-clang-wasm-codal](https://github.com/carlosperate/microbit-clang-wasm-codal), and a
-VS Code extension created in [vscode-microbit-cpp](https://github.com/carlosperate/vscode-microbit-cpp).
+VS Code extension [vscode-microbit-cpp](https://github.com/carlosperate/vscode-microbit-cpp).
 
-🚧 Status: pre-release, still work-in-progress. Nothing is published yet.
+🚧 Status: pre-release, still work-in-progress.
 
 ## What we changed from the upstream YoWASP/clang
 
-- Compiler targets Arm, not WebAssembly. Upstream builds a compiler that targets WebAssembly, this
+- This fork builds for an **Arm target**. Upstream builds a compiler that targets WebAssembly, this
   one targets Arm and includes the libraries specific to the micro:bit's Cortex-M4f.
-- **It ships Arm's libraries.** Upstream includes a C and C++ library for WebAssembly; we include
+- It ships **Arm's libraries**. Upstream includes a C and C++ library for WebAssembly; we include
   [Arm Toolchain for Embedded](https://github.com/arm/arm-toolchain)'s newlib-nano, libc++ and
   compiler-rt for the micro:bit's processor instead.
-- **It exposes `ld.lld`**, the linker used for Arm programs, next to upstream's `wasm-ld`.
-- **It builds LLVM from Arm's release**, not from plain LLVM, so the code it generates matches the
+- **Exposes `ld.lld`**, the linker used for Arm programs, next to upstream's `wasm-ld`.
+- **Builds LLVM from Arm's release**, not from plain LLVM, so the code it generates matches the
   toolchain we compare against. Upstream's one WebAssembly fix is kept in `patches/` and applied
   during the build.
 - **Assertions are off**, which makes the binary smaller and faster.
@@ -48,10 +49,9 @@ Until the packaging settles, `config.json`'s `prerelease` adds a semver prerelea
 `21.11.0-alpha.1` is the first attempt at packaging revision 0. Those can be published and
 superseded without spending a revision number; clear the key for a real release.
 
-Everything is defined once, in `config.json`: the LLVM lines with their tags and commits, which one
-`build.sh` builds by default, the wasi-sdk pin, `revision`, the packaging number — one number for
-the whole repository, since the same JavaScript builds every line — and `prerelease`. To release,
-bump `revision` and publish a GitHub Release: CI builds every line in `config.json` and publishes
+Everything is defined in `config.json`. The LLVM tags and commits, the defaults version built by
+`build.sh`, the wasi-sdk version, and this package version.
+To release, bump `revision` and publish a GitHub Release: CI builds every line in `config.json` and publishes
 `21.11.3`, `22.10.3`, … each under the dist-tag `llvm-<major>`; versions already on npm are skipped.
 `latest` is moved by hand, which is also what keeps it off a prerelease.
 

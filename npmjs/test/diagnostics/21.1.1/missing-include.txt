@@ -1,0 +1,4 @@
+case/main.cpp:1:10: fatal error: 'missing.h' file not found
+    1 | #include "missing.h"
+      |          ^~~~~~~~~~~
+1 error generated.

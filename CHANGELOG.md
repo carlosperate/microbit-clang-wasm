@@ -5,6 +5,9 @@ npm package per LLVM line. The versions each one published are listed under it.
 
 ## v0-alpha.2 - Unreleased
 
+- `readDiagnostics` reads what Clang and LLD print into records, with the file, line and column,
+  the warning option, the notes and the include chain, so an editor can show each error at the line
+  it belongs to. Checked on every CI build against the compiler that build has just made.
 - Every CI build checks that the packaged compiler turns the same source and flags into the same
   object as Arm's own Clang, byte for byte, for a C++ unit with CODAL's flags and a C unit against
   newlib.

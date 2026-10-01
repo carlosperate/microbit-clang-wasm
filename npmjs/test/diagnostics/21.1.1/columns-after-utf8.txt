@@ -1,0 +1,4 @@
+case/main.cpp:2:44: error: use of undeclared identifier 'oops'
+    2 |     const char *s = "héllo 🙂"; int x = oops;
+      |                                         ^~~~
+1 error generated.

@@ -77,6 +77,40 @@ export type AssetLoader =
 // to the generated loader. Set it before the first command runs, which is when they are read.
 export function setAssetLoader(loader: AssetLoader | null): void;
 
+/** Where a diagnostic or a note points. Lines and columns count from 1, Clang counting a column in
+  * bytes of UTF-8; null where the tool gives none, and the linker gives no column. */
+export type DiagnosticLocation = {
+    file: string | null;
+    line: number | null;
+    column: number | null;
+};
+
+export type DiagnosticNote = DiagnosticLocation & { message: string };
+
+export type Diagnostic = DiagnosticLocation & {
+    /** A fatal error is an error. */
+    severity: 'error' | 'warning' | 'remark';
+    /** Without the bracketed option, which is `flag`. */
+    message: string;
+    /** The option controlling it: `-Wunused-variable`, from `[-Werror,-Wunused-variable]`. */
+    flag: string | null;
+    /** Clang's notes; for the linker, each place a symbol is referenced or defined. */
+    notes: DiagnosticNote[];
+    /** The lines that included `file`, innermost first. Clang prints a chain only when it changes,
+      * so this is empty for the main file and for a file no chain has named yet. */
+    includedFrom: { file: string; line: number }[];
+    /** All that was printed for it: its include chain, the message, the excerpt and the notes. */
+    text: string;
+};
+
+/** Output that is no diagnostic: a summary line, or anything this reader does not recognise. */
+export type OtherOutput = { severity: null; text: string };
+
+/** Reads one run of one tool, since an include chain carries over from one message to the next.
+  * Joining every `text` gives the output back unchanged, so a caller can leave messages out of
+  * what it shows without knowing the format. */
+export function readDiagnostics(output: string): (Diagnostic | OtherOutput)[];
+
 export const commands: {
     'addr2line': Command,
     'size': Command,

@@ -1,0 +1,4 @@
+case/main.cpp:1:15: error: static assertion failed: bad [-1]
+    1 | static_assert(false, "bad [-1]");
+      |               ^~~~~
+1 error generated.

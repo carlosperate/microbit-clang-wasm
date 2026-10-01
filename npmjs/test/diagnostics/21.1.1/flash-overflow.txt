@@ -1,0 +1,2 @@
+ld.lld: error: section '.text' will not fit in region 'FLASH': overflowed by 3092 bytes
+ld.lld: error: section '.ARM.exidx' will not fit in region 'FLASH': overflowed by 3108 bytes

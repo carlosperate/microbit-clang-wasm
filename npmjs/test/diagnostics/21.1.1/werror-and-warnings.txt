@@ -1,0 +1,10 @@
+case/main.cpp:2:9: error: unused variable 'unused' [-Werror,-Wunused-variable]
+    2 |     int unused = 3;
+      |         ^~~~~~
+case/main.cpp:1:14: warning: unused parameter 'argc' [-Wunused-parameter]
+    1 | int main(int argc, char **argv) {
+      |              ^
+case/main.cpp:1:27: warning: unused parameter 'argv' [-Wunused-parameter]
+    1 | int main(int argc, char **argv) {
+      |                           ^
+2 warnings and 1 error generated.

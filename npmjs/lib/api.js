@@ -4,6 +4,7 @@ import { instantiate } from '../gen/llvm.js';
 
 import { Exit } from '@yowasp/runtime';
 export { Exit } from '@yowasp/runtime';
+export { readDiagnostics } from './diagnostics.js';
 
 // By path: the runtime's package exports only its Application API, and a session needs the
 // filesystem underneath it. Pinned, and bundled by esbuild, so a move fails at build time.

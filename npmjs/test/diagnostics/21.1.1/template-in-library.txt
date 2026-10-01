@@ -1,0 +1,19 @@
+In file included from case/main.cpp:1:
+In file included from /usr/include/c++/v1/algorithm:1842:
+In file included from /usr/include/c++/v1/__algorithm/adjacent_find.h:13:
+/usr/include/c++/v1/__algorithm/comp.h:41:18: error: invalid operands to binary expression ('const S' and 'const S')
+   41 |     return __lhs < __rhs;
+      |            ~~~~~ ^ ~~~~~
+/usr/include/c++/v1/__algorithm/max.h:30:10: note: in instantiation of function template specialization 'std::__less<>::operator()<S, S>' requested here
+   30 |   return __comp(__a, __b) ? __b : __a;
+      |          ^
+/usr/include/c++/v1/__algorithm/max.h:36:15: note: in instantiation of function template specialization 'std::max<S, std::__less<void, void>>' requested here
+   36 |   return std::max(__a, __b, __less<>());
+      |               ^
+case/main.cpp:5:10: note: in instantiation of function template specialization 'std::max<S>' requested here
+    5 |     std::max(a, b);
+      |          ^
+case/main.cpp:5:5: warning: ignoring return value of function declared with 'nodiscard' attribute [-Wunused-result]
+    5 |     std::max(a, b);
+      |     ^~~~~~~~ ~~~~
+1 warning and 1 error generated.
