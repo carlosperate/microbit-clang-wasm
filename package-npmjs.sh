@@ -5,7 +5,7 @@ PYTHON=${PYTHON:-python}
 cd $(dirname $0)/npmjs
 
 # Packed from this directory, so the licence files package-in.json points at have to be in it.
-cp ../LICENSE.txt ../LICENSES .
+cp ../LICENSE.txt ../LICENSES.md .
 
 ${PYTHON} prepare.py
 npm install

@@ -6,7 +6,7 @@
     "contributors": [
         "Catherine <whitequark@whitequark.org> (the YoWASP/clang packaging this is derived from)"
     ],
-    "license": "SEE LICENSE IN LICENSES",
+    "license": "SEE LICENSE IN LICENSES.md",
     "homepage": "https://github.com/carlosperate/microbit-clang-wasm",
     "repository": {
         "type": "git",
@@ -22,7 +22,7 @@
         "gen/*-resources.tar",
         "gen/*.wasm",
         "LICENSE.txt",
-        "LICENSES"
+        "LICENSES.md"
     ],
     "exports": {
         ".": {

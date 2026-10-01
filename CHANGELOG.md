@@ -3,7 +3,9 @@
 Releases are named after the packaging revision in `config.json`, because one release can publish an
 npm package per LLVM line. The versions each one published are listed under it.
 
-## v0-alpha.2 - Unreleased
+## v0-alpha.2 - 2026/10/01
+
+Published `microbit-clang-wasm@21.11.0-alpha.2`.
 
 - `readDiagnostics` reads what Clang and LLD print into records, with the file, line and column,
   the warning option, the notes and the include chain, so an editor can show each error at the line
@@ -13,7 +15,7 @@ npm package per LLVM line. The versions each one published are listed under it.
   newlib.
 - The npm package is also attached to its GitHub release.
 
-## v0-alpha.1 - 2026-09-10
+## v0-alpha.1 - 2026/09/10
 
 Published `microbit-clang-wasm@21.11.0-alpha.1`.
 

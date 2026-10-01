@@ -136,7 +136,7 @@ setAssetLoader((name) => readFile(new URL(name, assetsDirectory)));   // llvm.co
 
 ## Licences
 
-[LICENSES](LICENSES) describes each shipped component.
+[LICENSES.md](LICENSES.md) describes each shipped component.
 The compiler is LLVM (Apache-2.0 with LLVM exception), the packaging comes from YoWASP/clang (ISC),
 and the libraries come from Arm Toolchain for Embedded, whose own notices ship inside the package
 at `usr/share/licenses`.
