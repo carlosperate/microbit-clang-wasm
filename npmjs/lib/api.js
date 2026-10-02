@@ -6,9 +6,8 @@ import { Exit } from '@yowasp/runtime';
 export { Exit } from '@yowasp/runtime';
 export { readDiagnostics } from './diagnostics.js';
 
-// By path: the runtime's package exports only its Application API, and a session needs the
-// filesystem underneath it. Pinned, and bundled by esbuild, so a move fails at build time.
-import { Environment, directoryFromTree } from '../node_modules/@yowasp/runtime/lib/wasi-virt.js';
+// The runtime's filesystem, which a session needs directly, with this package's fixes applied.
+import { Environment, directoryFromTree } from './filesystem.js';
 
 const ARGV0 = 'yowasp-llvm';
 
@@ -58,20 +57,6 @@ const resources = {
     modules: (fetch) => (modulesOnce ??= retryable(generatedResources.modules(withLoader(fetch)), () => { modulesOnce = null; })),
     filesystem: (fetch) => (filesystemOnce ??= retryable(generatedResources.filesystem(withLoader(fetch)), () => { filesystemOnce = null; })),
 };
-
-// The runtime's positional write is a stub that throws, so a tool doing a pwrite fails with no useful
-// error. Patched only while it is still the stub, so an upstream fix takes over.
-const { Descriptor } = new Environment().exports.fs;
-if (/not implemented/.test(Descriptor.prototype.write.toString())) {
-    // The runtime's own stream write, which copies rather than writing in place: a file's bytes may
-    // be a view into the shared resources tar.
-    Descriptor.prototype.write = function (buffer, offset) {
-        if (this.entry.data === undefined)
-            throw 'is-directory';
-        this.writeViaStream(offset).write(buffer);
-        return BigInt(buffer.length);
-    };
-}
 
 const llvm = new Application(resources, instantiate, ARGV0);
 const runLLVM = llvm.run.bind(llvm);

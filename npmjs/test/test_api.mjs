@@ -122,6 +122,30 @@ const rejected = await session.clang(
 );
 check(rejected !== 0 && /error:/.test(sessionDiagnostics), 'a session reports a failure with its diagnostic');
 
+// Clang writes each output to a temporary file and renames it over the old one, which the runtime
+// used to drop, keeping the old object with exit code 0.
+await session.writeFile('first.c', 'int first(void) { return 1; }\n');
+await session.writeFile('second.c', 'int second(void) { return 2; }\n');
+await session.clang(['clang', ...CPU, SYSROOT, '-c', 'first.c', '-o', 'again.o'], {});
+const again = await session.clang(['clang', ...CPU, SYSROOT, '-c', 'second.c', '-o', 'again.o'], {});
+let symbols = '';
+await session.exec(['nm', 'again.o'], { stdout: (bytes) => bytes && (symbols += new TextDecoder().decode(bytes)) });
+check(again === 0 && /\bsecond\b/.test(symbols) && !/\bfirst\b/.test(symbols), 'compiling again to the same output replaces the object');
+
+// The runtime used to drop `..`, so this include looked for source/include/util.h.
+await session.writeFile('source/main.c', '#include "../include/util.h"\nint main(void) { return UTIL; }\n');
+await session.writeFile('include/util.h', '#define UTIL 0\n');
+const up = await session.clang(['clang', ...CPU, SYSROOT, '-c', 'source/main.c', '-o', 'source/main.o'], {});
+check(up === 0, 'an #include through .. finds its file');
+
+// A file arrives in pieces of at most 4 KB, now grown in place rather than copied whole for each.
+await session.writeFile('big.c', Array.from({ length: 50000 }, (_, i) => `int value${i} = ${i};\n`).join(''));
+let printed = '';
+await session.clang(['clang', ...CPU, SYSROOT, '-E', 'big.c'], { stdout: (bytes) => bytes && (printed += new TextDecoder().decode(bytes)) });
+await session.clang(['clang', ...CPU, SYSROOT, '-E', 'big.c', '-o', 'big.i'], {});
+const written = new TextDecoder().decode(await session.readFile('big.i'));
+check(written.length > 1000000 && written === printed, `a ${(written.length / 1048576).toFixed(1)} MB output written to a file is what stdout prints`);
+
 // What this compiler prints, read by the reader packaged with it: each LLVM line's own check.
 const reading = createSession();
 for (const testCase of cases) {

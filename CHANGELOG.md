@@ -3,6 +3,15 @@
 Releases are named after the packaging revision in `config.json`, because one release can publish an
 npm package per LLVM line. The versions each one published are listed under it.
 
+## v0-alpha.3 - Unreleased
+
+- Virtual filesystem fix: Compiling again to an output that already exists replaces it.
+  Before, the old file was kept and the tool still reported success,
+  so a rebuild could link stale objects.
+- Virtual filesystem fix: `..` in a path is resolved, so `#include "../include/util.h"` finds its
+  file as a native build does.
+- Virtual filesystem fix: Large outputs written to files are faster.
+
 ## v0-alpha.2 - 2026/10/01
 
 Published `microbit-clang-wasm@21.11.0-alpha.2`.

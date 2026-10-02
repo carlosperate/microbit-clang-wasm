@@ -50,9 +50,9 @@ jobs:
           echo "versions=${chosen}" >> "$GITHUB_OUTPUT"
           echo "building ${chosen} at revision $(jq -r .revision config.json)"
 
-  # Output stored from each LLVM line, so a reader mistake fails in seconds, not after the build.
+  # The tests that need no compiler, so a mistake in the JavaScript fails in seconds, not after the build.
   reader:
-    name: Diagnostics reader, stored output
+    name: Diagnostics reader and filesystem, no compiler
     needs: pins
     runs-on: ubuntu-22.04
     steps:
@@ -61,6 +61,12 @@ jobs:
         with:
           node-version: '22.x'
       - run: node --test npmjs/test/test_diagnostics.mjs
+      # The fixes patch the runtime, so it alone is installed, at the version package-in.json pins.
+      - name: Test the fixes to the runtime's filesystem
+        working-directory: npmjs
+        run: |
+          npm install --no-save --no-package-lock "@yowasp/runtime@$(jq -r '.devDependencies["@yowasp/runtime"]' package-in.json)"
+          node --test test/test_filesystem.mjs
 
   tblgen:
     name: Native code generators (${{ matrix.llvm }})
