@@ -3,7 +3,7 @@
 Releases are named after the packaging revision in `config.json`, because one release can publish an
 npm package per LLVM line. The versions each one published are listed under it.
 
-## v0-alpha.3 - Unreleased
+## v0-alpha.3 - 2026/10/06
 
 - `readCompletions` reads what Clang prints when asked to complete at a position into records,
   so an editor can offer completions from the compiler itself.

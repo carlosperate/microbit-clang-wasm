@@ -1,6 +1,6 @@
 {
     "revision": 0,
-    "prerelease": "alpha.2",
+    "prerelease": "alpha.3",
     "llvm": {
         "repository": "https://github.com/arm/arm-toolchain.git",
         "default": "21.1.1",
