@@ -5,6 +5,8 @@ npm package per LLVM line. The versions each one published are listed under it.
 
 ## v0-alpha.3 - Unreleased
 
+- `readCompletions` reads what Clang prints when asked to complete at a position into records,
+  so an editor can offer completions from the compiler itself.
 - Virtual filesystem fix: Compiling again to an output that already exists replaces it.
   Before, the old file was kept and the tool still reported success,
   so a rebuild could link stale objects.

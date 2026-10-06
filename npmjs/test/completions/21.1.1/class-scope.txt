@@ -1,0 +1,5 @@
+COMPLETION: Box : Box
+COMPLETION: made : [#int#]made
+COMPLETION: operator= : [#Box &#]operator=(<#const Box &#>)
+COMPLETION: operator= : [#Box &#]operator=(<#Box &&#>)
+COMPLETION: ~Box : [#void#]~Box()

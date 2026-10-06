@@ -111,6 +111,39 @@ export type OtherOutput = { severity: null; text: string };
   * what it shows without knowing the format. */
 export function readDiagnostics(output: string): (Diagnostic | OtherOutput)[];
 
+/** A piece of a completion string. `informative` is a result type, or a note such as ` const` or
+  * the class a member comes from; `placeholder` is an argument to type, or in an overload the
+  * argument the position is at; `optional` holds default arguments, and nests. Plain text does not
+  * tell the name from the punctuation around it. */
+export type CompletionChunk =
+    | { kind: 'text' | 'informative' | 'placeholder'; text: string }
+    | { kind: 'optional'; chunks: CompletionChunk[] };
+
+export type CompletionRecord = { text: string } & (
+    /** A declaration or a macro, which Clang prints alike. `Hidden` is overridden or shadowed,
+      * `InBase` from a base class, `Inaccessible` private or protected from here. */
+    | { kind: 'candidate'; name: string; tags: ('Hidden' | 'InBase' | 'Inaccessible')[]; chunks: CompletionChunk[]; brief: string | null }
+    | { kind: 'keyword'; name: string }
+    /** Such as `sizeof(…)`, `delete [] …` or an included file, named by what is typed up to its
+      * arguments: `sizeof`, `delete []`, `MicroBit.h`. A declaration named `Pattern` with no tags
+      * reads as one too: the format cannot tell them apart. */
+    | { kind: 'pattern'; name: string; chunks: CompletionChunk[] }
+    /** A call the position is an argument of. Clang leaves out every parameter from the first
+      * defaulted one, the current argument included, so a call there has no placeholder. */
+    | { kind: 'overload'; chunks: CompletionChunk[] }
+    /** Where that call's arguments start, in the file names the compiler was given. */
+    | { kind: 'opening-paren'; file: string; line: number; column: number }
+    | { kind: 'preferred-type'; type: string }
+    /** A line this reader does not recognise. */
+    | { kind: null }
+);
+
+/** Reads the stdout of one `-Xclang -code-completion-at=<file>:<line>:<column>` run, one record per
+  * line. Joining every `text` gives the output back unchanged. The column counts bytes. Not read:
+  * `-code-completion-patterns`, whose patterns span lines, and `-code-completion-with-fixits`,
+  * whose fix-it would end up in the brief comment or the string. */
+export function readCompletions(output: string): CompletionRecord[];
+
 export const commands: {
     'addr2line': Command,
     'size': Command,

@@ -4,9 +4,10 @@
 // compiler targets a Cortex-M4, so the output cannot be run here; the checks are that it is ARM
 // code, that the linker is reachable, and that a broken file fails with a useful diagnostic.
 
-const { commands, createSession, readDiagnostics, setAssetLoader } = await import('microbit-clang-wasm');
+const { commands, createSession, readCompletions, readDiagnostics, setAssetLoader } = await import('microbit-clang-wasm');
 const { readFile, stat } = await import('node:fs/promises');
 const { CPU, cases, produce, verify } = await import('./diagnostics/cases.mjs');
+const completions = await import('./completions/cases.mjs');
 const SYSROOT = '--sysroot=/usr';
 
 // An extension host has no URL to fetch and no filesystem the generated loader can reach, so the
@@ -157,6 +158,21 @@ for (const testCase of cases) {
         console.error(error);
     }
     check(failure === null, `the diagnostics reader reads ${testCase.name} as this compiler prints it`);
+}
+
+for (const [index, testCase] of completions.cases.entries()) {
+    let failure = null;
+    try {
+        const { stdout, stderr, exitCode } = await completions.produce(reading, testCase);
+        // A renamed or removed option would otherwise read as a list with nothing in it.
+        if (index === 0) check(!/unknown argument/.test(stderr) && /^COMPLETION: /m.test(stdout), 'the compiler still has its completion option');
+        if (exitCode !== (testCase.exitCode ?? 0)) throw new Error(`exit code ${exitCode}`);
+        completions.verify(testCase, stdout, readCompletions);
+    } catch (error) {
+        failure = error;
+        console.error(error);
+    }
+    check(failure === null, `the completions reader reads ${testCase.name} as this compiler prints it`);
 }
 
 console.log('all checks passed');

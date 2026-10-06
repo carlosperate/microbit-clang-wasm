@@ -1,0 +1,6 @@
+COMPLETION: Display : Display::
+COMPLETION: fade : [#int#]fade : Ratio : brightness over time.
+COMPLETION: operator= : [#Display &#]operator=(<#const Display &#>)
+COMPLETION: operator= : [#Display &#]operator=(<#Display &&#>)
+COMPLETION: scroll : [#void#]scroll(<#const char *text#>) : Scrolls the given text across the display.
+COMPLETION: ~Display : [#void#]~Display()

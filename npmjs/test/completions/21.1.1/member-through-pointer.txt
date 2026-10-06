@@ -1,0 +1,15 @@
+COMPLETION: Base (InBase) : Base::
+COMPLETION: count : [#int#]count
+COMPLETION: inherited (InBase) : [#int#][#Base::#]inherited
+COMPLETION: move : [#void#]move(<#int x#>{#, <#int y = 0#>{#, <#int z = 1#>#}#})
+COMPLETION: operator= : [#Thing &#]operator=(<#const Thing &#>)
+COMPLETION: operator= : [#Thing &#]operator=(<#Thing &&#>)
+COMPLETION: operator= (Hidden,InBase) : [#Base &#]Base::operator=(<#const Base &#>)
+COMPLETION: operator= (Hidden,InBase) : [#Base &#]Base::operator=(<#Base &&#>)
+COMPLETION: secret (Inaccessible) : [#int#]secret
+COMPLETION: size : [#int#]size()[# const#]
+COMPLETION: speak : [#void#]speak()
+COMPLETION: speak (Hidden,InBase) : [#void#]Base::speak()
+COMPLETION: Thing : Thing::
+COMPLETION: ~Base (InBase) : [#void#][#Base::#]~Base()
+COMPLETION: ~Thing : [#void#]~Thing()

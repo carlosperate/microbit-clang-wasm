@@ -1,0 +1,49 @@
+OPENING_PAREN_LOC: case/main.cpp:4:9
+OVERLOAD: [#void#]show(int value, <#int delay#>)
+PREFERRED-TYPE: int
+COMPLETION: __func__
+COMPLETION: __FUNCTION__
+COMPLETION: __PRETTY_FUNCTION__
+COMPLETION: _Nonnull
+COMPLETION: _Null_unspecified
+COMPLETION: _Nullable
+COMPLETION: Pattern : [#size_t#]alignof(<#type#>)
+COMPLETION: auto
+COMPLETION: bool
+COMPLETION: char
+COMPLETION: char16_t
+COMPLETION: char32_t
+COMPLETION: class
+COMPLETION: const
+COMPLETION: Pattern : const_cast<<#type#>>(<#expression#>)
+COMPLETION: Pattern : decltype(<#expression#>)
+COMPLETION: Pattern : [#void#]delete <#expression#>
+COMPLETION: Pattern : [#void#]delete [] <#expression#>
+COMPLETION: double
+COMPLETION: enum
+COMPLETION: Pattern : [#bool#]false
+COMPLETION: float
+COMPLETION: int
+COMPLETION: long
+COMPLETION: main : [#int#]main()
+COMPLETION: Pattern : new <#type#>(<#expressions#>)
+COMPLETION: Pattern : new <#type#>[<#size#>](<#expressions#>)
+COMPLETION: Pattern : [#bool#]noexcept(<#expression#>)
+COMPLETION: Pattern : [#std::nullptr_t#]nullptr
+COMPLETION: operator
+COMPLETION: Pattern : reinterpret_cast<<#type#>>(<#expression#>)
+COMPLETION: short
+COMPLETION: show : [#void#]show(<#int value#>, <#int delay#>)
+COMPLETION: show : [#void#]show(<#const char *text#>{#, <#int delay = 120#>#})
+COMPLETION: signed
+COMPLETION: Pattern : [#size_t#]sizeof(<#expression-or-type#>)
+COMPLETION: Pattern : [#size_t#]sizeof...(<#parameter-pack#>)
+COMPLETION: Pattern : static_cast<<#type#>>(<#expression#>)
+COMPLETION: struct
+COMPLETION: Pattern : [#bool#]true
+COMPLETION: Pattern : typename <#name#>
+COMPLETION: union
+COMPLETION: unsigned
+COMPLETION: void
+COMPLETION: volatile
+COMPLETION: wchar_t

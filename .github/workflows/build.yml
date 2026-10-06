@@ -52,7 +52,7 @@ jobs:
 
   # The tests that need no compiler, so a mistake in the JavaScript fails in seconds, not after the build.
   reader:
-    name: Diagnostics reader and filesystem, no compiler
+    name: Readers and filesystem, no compiler
     needs: pins
     runs-on: ubuntu-22.04
     steps:
@@ -60,7 +60,7 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: '22.x'
-      - run: node --test npmjs/test/test_diagnostics.mjs
+      - run: node --test npmjs/test/test_diagnostics.mjs npmjs/test/test_completions.mjs
       # The fixes patch the runtime, so it alone is installed, at the version package-in.json pins.
       - name: Test the fixes to the runtime's filesystem
         working-directory: npmjs
@@ -255,7 +255,7 @@ jobs:
       - name: Install the packed package and run the smoke test
         run: |
           mkdir -p "${RUNNER_TEMP}/smoke"
-          cp -R npmjs/test/test_api.mjs npmjs/test/diagnostics "${RUNNER_TEMP}/smoke/"
+          cp -R npmjs/test/test_api.mjs npmjs/test/diagnostics npmjs/test/completions "${RUNNER_TEMP}/smoke/"
           cd "${RUNNER_TEMP}/smoke"
           npm init -y >/dev/null
           npm install "${GITHUB_WORKSPACE}"/dist/*.tgz

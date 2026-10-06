@@ -5,6 +5,7 @@ import { instantiate } from '../gen/llvm.js';
 import { Exit } from '@yowasp/runtime';
 export { Exit } from '@yowasp/runtime';
 export { readDiagnostics } from './diagnostics.js';
+export { readCompletions } from './completions.js';
 
 // The runtime's filesystem, which a session needs directly, with this package's fixes applied.
 import { Environment, directoryFromTree } from './filesystem.js';
